@@ -1,154 +1,107 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Detector de Padrões VLD", layout="wide")
-st.title("📊 Detector de Padrões VLD - Operações")
+st.set_page_config(page_title="Analisador Dinâmico de Planilhas", layout="wide")
+st.title("📊 Analisador Dinâmico de Planilhas")
 
-DIAS_PT = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
-
-# -----------------------------
-# Função preparar a base
-# -----------------------------
-def preparar_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [c.strip().upper() for c in df.columns]
-
-    if "DATA" in df.columns:
-        df["DATA"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
-        df["MES"] = df["DATA"].dt.to_period("M").astype(str)
-        df["DIA_SEMANA"] = df["DATA"].dt.weekday.map(DIAS_PT)
-
-    for col in ["TEMPO DE SOLUÇÃO", "TEMPO_DE_SOLUCAO", "TEMPO_DE_SOLUCAO_MIN", "PARADA_MIN"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    return df
-
-# -----------------------------
-# Função gerar relatório Excel com gráficos
-# -----------------------------
-def gerar_relatorio(df: pd.DataFrame, saida="relatorio.xlsx"):
-    with pd.ExcelWriter(saida, engine="xlsxwriter") as writer:
-        wb = writer.book
-
-        # Aba base completa
-        df.to_excel(writer, sheet_name="Operações", index=False)
-
-        # 1) Top Defeitos
-        if "DEFEITO" in df.columns:
-            top_defeitos = df["DEFEITO"].value_counts().rename_axis("DEFEITO").reset_index(name="QTD")
-            top_defeitos.to_excel(writer, sheet_name="Top Defeitos", index=False)
-            ws = writer.sheets["Top Defeitos"]
-            chart = wb.add_chart({"type": "column"})
-            chart.add_series({
-                "categories": ["Top Defeitos", 1, 0, len(top_defeitos), 0],
-                "values":     ["Top Defeitos", 1, 1, len(top_defeitos), 1],
-                "name": "Ocorrências"
-            })
-            chart.set_title({"name": "Top Defeitos"})
-            ws.insert_chart("D2", chart)
-
-        # 2) Defeitos x Fábrica
-        if set(["FÁBRICA", "DEFEITO"]).issubset(df.columns):
-            defeito_fab = df.groupby(["FÁBRICA", "DEFEITO"]).size().reset_index(name="QTD")
-            defeito_fab.to_excel(writer, sheet_name="Defeitos x Fábrica", index=False)
-            ws = writer.sheets["Defeitos x Fábrica"]
-            chart = wb.add_chart({"type": "column"})
-            chart.add_series({
-                "categories": ["Defeitos x Fábrica", 1, 1, len(defeito_fab), 1],
-                "values":     ["Defeitos x Fábrica", 1, 2, len(defeito_fab), 2],
-                "name": "Qtd por defeito"
-            })
-            chart.set_title({"name": "Defeitos por Fábrica"})
-            ws.insert_chart("E2", chart)
-
-        # 3) Tempo médio por defeito
-        tempo_col = None
-        for c in ["TEMPO DE SOLUÇÃO", "TEMPO_DE_SOLUCAO", "TEMPO_DE_SOLUCAO_MIN"]:
-            if c in df.columns:
-                tempo_col = c
-                break
-        if tempo_col and "DEFEITO" in df.columns:
-            tempo_medio = (df.groupby("DEFEITO")[tempo_col].mean().round(1)
-                           .reset_index(name="TEMPO_MEDIO_MIN"))
-            tempo_medio.to_excel(writer, sheet_name="Tempo Médio", index=False)
-            ws = writer.sheets["Tempo Médio"]
-            chart = wb.add_chart({"type": "bar"})
-            chart.add_series({
-                "categories": ["Tempo Médio", 1, 0, len(tempo_medio), 0],
-                "values":     ["Tempo Médio", 1, 1, len(tempo_medio), 1],
-                "name": "Média (min)"
-            })
-            chart.set_title({"name": "Tempo Médio por Defeito"})
-            ws.insert_chart("D2", chart)
-
-        # 4) Defeito x Mês
-        if set(["DEFEITO", "MES"]).issubset(df.columns):
-            pivot = pd.pivot_table(df, index="DEFEITO", columns="MES",
-                                   values=("FÁBRICA" if "FÁBRICA" in df.columns else "DEFEITO"),
-                                   aggfunc="count", fill_value=0)
-            pivot.to_excel(writer, sheet_name="Defeito x Mês")
-            ws = writer.sheets["Defeito x Mês"]
-            chart = wb.add_chart({"type": "line"})
-            for i in range(len(pivot)):
-                chart.add_series({
-                    "name":       ["Defeito x Mês", i+1, 0],
-                    "categories": ["Defeito x Mês", 0, 1, 0, len(pivot.columns)],
-                    "values":     ["Defeito x Mês", i+1, 1, i+1, len(pivot.columns)],
-                })
-            chart.set_title({"name": "Ocorrências por Mês"})
-            ws.insert_chart("B10", chart)
-
-    return saida
-
-# -----------------------------
-# Interface Streamlit
-# -----------------------------
-uploaded_file = st.file_uploader("📂 Suba sua base (.xlsx)", type=["xlsx"])
+# Upload
+uploaded_file = st.file_uploader("📂 Suba sua planilha (.xlsx ou .csv)", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
-    # Detectar a aba correta automaticamente
-    xls = pd.ExcelFile(uploaded_file)
-    st.write("📑 Abas encontradas:", xls.sheet_names)
-    sheet = next((s for s in xls.sheet_names if "opera" in s.lower()), xls.sheet_names[0])
-    st.success(f"✅ Usando a aba: {sheet}")
+    # Detectar abas
+    if uploaded_file.name.endswith(".xlsx"):
+        xls = pd.ExcelFile(uploaded_file)
+        aba = st.selectbox("📑 Escolha a aba", xls.sheet_names)
+        df = pd.read_excel(xls, sheet_name=aba)
+    else:
+        df = pd.read_csv(uploaded_file, sep=None, engine="python")
 
-    df = pd.read_excel(xls, sheet_name=sheet)
-    df = preparar_df(df)
-
-    # Pré-visualização
-    st.subheader("🔎 Pré-visualização da base (aba selecionada)")
+    st.subheader("🔎 Pré-visualização")
     st.dataframe(df.head())
 
-    # -----------------------------
-    # Gráficos no navegador
-    # -----------------------------
-    if "DEFEITO" in df.columns:
-        st.subheader("🔥 Top Defeitos")
-        top_defeitos = df["DEFEITO"].value_counts().reset_index()
-        top_defeitos.columns = ["Defeito", "Ocorrências"]
-        st.bar_chart(top_defeitos.set_index("Defeito"))
+    # Listar colunas
+    cols = df.columns.tolist()
+    st.write("📋 Colunas detectadas:", cols)
 
-    if set(["DEFEITO", "FÁBRICA"]).issubset(df.columns):
-        st.subheader("🏭 Defeitos por Fábrica")
-        defeito_fab = df.groupby("FÁBRICA")["DEFEITO"].value_counts().unstack(fill_value=0)
-        st.bar_chart(defeito_fab)
+    # Seleção de colunas para análise categórica
+    col_analise = st.selectbox("👉 Escolha uma coluna categórica para contar valores", cols)
+    col_grupo = st.selectbox("👉 (Opcional) Agrupar por outra coluna", ["Nenhum"] + cols)
 
-    if "MES" in df.columns and "DEFEITO" in df.columns:
-        st.subheader("📅 Defeitos por Mês")
-        defeito_mes = df.groupby(["MES", "DEFEITO"]).size().unstack(fill_value=0)
-        st.line_chart(defeito_mes)
+    # Frequência
+    freq = None
+    if col_analise:
+        st.subheader(f"📊 Frequência de valores em: {col_analise}")
+        if col_grupo != "Nenhum":
+            freq = df.groupby(col_grupo)[col_analise].value_counts().unstack(fill_value=0)
+            st.bar_chart(freq)
+        else:
+            freq = df[col_analise].value_counts().reset_index()
+            freq.columns = [col_analise, "Ocorrências"]
+            st.bar_chart(freq.set_index(col_analise))
 
-    if "SOLUÇÃO" in df.columns:
-        st.subheader("🛠️ Top Soluções")
-        top_sol = df["SOLUÇÃO"].value_counts().reset_index()
-        top_sol.columns = ["Solução", "Ocorrências"]
-        st.bar_chart(top_sol.set_index("Solução"))
+    # Análise numérica automática
+    num_cols = df.select_dtypes(include="number").columns.tolist()
+    desc, corr = None, None
+    if num_cols:
+        st.subheader("📈 Estatísticas de colunas numéricas")
+        desc = df[num_cols].describe().T[["mean", "50%", "std", "min", "max"]]
+        desc.rename(columns={"mean": "Média", "50%": "Mediana", "std": "Desvio Padrão",
+                             "min": "Mínimo", "max": "Máximo"}, inplace=True)
+        st.dataframe(desc)
 
-    # -----------------------------
-    # Botão gerar Excel
-    # -----------------------------
+        st.subheader("🔗 Correlação entre variáveis numéricas")
+        corr = df[num_cols].corr()
+        st.dataframe(corr)
+        st.line_chart(corr)
+
+    # Exportar relatório Excel com gráficos
     if st.button("📥 Gerar Relatório Excel"):
-        saida = gerar_relatorio(df)
+        saida = "relatorio_dinamico.xlsx"
+        with pd.ExcelWriter(saida, engine="xlsxwriter") as writer:
+            wb = writer.book
+
+            # Base
+            df.to_excel(writer, sheet_name="Base", index=False)
+
+            # Frequência
+            if freq is not None:
+                freq.to_excel(writer, sheet_name="Analise", index=True)
+                ws = writer.sheets["Analise"]
+                chart = wb.add_chart({"type": "column"})
+                chart.add_series({
+                    "categories": ["Analise", 1, 0, len(freq), 0],
+                    "values": ["Analise", 1, 1, len(freq), 1],
+                    "name": "Frequência"
+                })
+                chart.set_title({"name": f"Frequência de {col_analise}"})
+                ws.insert_chart("E2", chart)
+
+            # Estatísticas
+            if desc is not None:
+                desc.to_excel(writer, sheet_name="Estatísticas")
+                ws = writer.sheets["Estatísticas"]
+                chart = wb.add_chart({"type": "column"})
+                chart.add_series({
+                    "categories": ["Estatísticas", 1, 0, len(desc), 0],
+                    "values": ["Estatísticas", 1, 1, len(desc), 1],
+                    "name": "Média"
+                })
+                chart.set_title({"name": "Médias Numéricas"})
+                ws.insert_chart("H2", chart)
+
+            # Correlação
+            if corr is not None:
+                corr.to_excel(writer, sheet_name="Correlações")
+                ws = writer.sheets["Correlações"]
+                chart = wb.add_chart({"type": "line"})
+                for i in range(len(corr)):
+                    chart.add_series({
+                        "name": ["Correlações", i+1, 0],
+                        "categories": ["Correlações", 0, 1, 0, len(corr.columns)],
+                        "values": ["Correlações", i+1, 1, i+1, len(corr.columns)]
+                    })
+                chart.set_title({"name": "Correlação entre Variáveis"})
+                ws.insert_chart("B10", chart)
+
         with open(saida, "rb") as f:
-            st.download_button("⬇️ Baixar Relatório", f, file_name="relatorio.xlsx")
+            st.download_button("⬇️ Baixar Relatório", f, file_name=saida)
