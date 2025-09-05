@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Analisador Dinâmico de Planilhas", layout="wide")
 st.title("📊 Analisador Dinâmico de Planilhas")
@@ -19,89 +20,84 @@ if uploaded_file is not None:
     st.subheader("🔎 Pré-visualização")
     st.dataframe(df.head())
 
-    # Listar colunas
     cols = df.columns.tolist()
     st.write("📋 Colunas detectadas:", cols)
 
-    # Seleção de colunas para análise categórica
-    col_analise = st.selectbox("👉 Escolha uma coluna categórica para contar valores", cols)
-    col_grupo = st.selectbox("👉 (Opcional) Agrupar por outra coluna", ["Nenhum"] + cols)
+    # Seleção de colunas para correlação
+    col_x = st.selectbox("👉 Escolha a primeira coluna (X)", cols)
+    col_y = st.selectbox("👉 Escolha a segunda coluna (Y)", cols)
 
-    # Frequência
-    freq = None
-    if col_analise:
-        st.subheader(f"📊 Frequência de valores em: {col_analise}")
-        if col_grupo != "Nenhum":
-            freq = df.groupby(col_grupo)[col_analise].value_counts().unstack(fill_value=0)
-            st.bar_chart(freq)
-        else:
-            freq = df[col_analise].value_counts().reset_index()
-            freq.columns = [col_analise, "Ocorrências"]
-            st.bar_chart(freq.set_index(col_analise))
+    corr_val, insight, df_corr = None, None, None
 
-    # Análise numérica automática
-    num_cols = df.select_dtypes(include="number").columns.tolist()
-    desc, corr = None, None
-    if num_cols:
-        st.subheader("📈 Estatísticas de colunas numéricas")
-        desc = df[num_cols].describe().T[["mean", "50%", "std", "min", "max"]]
-        desc.rename(columns={"mean": "Média", "50%": "Mediana", "std": "Desvio Padrão",
-                             "min": "Mínimo", "max": "Máximo"}, inplace=True)
-        st.dataframe(desc)
+    if col_x and col_y:
+        try:
+            # Garantir numérico
+            df_corr = df[[col_x, col_y]].dropna()
+            df_corr[col_x] = pd.to_numeric(df_corr[col_x], errors="coerce")
+            df_corr[col_y] = pd.to_numeric(df_corr[col_y], errors="coerce")
+            df_corr = df_corr.dropna()
 
-        st.subheader("🔗 Correlação entre variáveis numéricas")
-        corr = df[num_cols].corr()
-        st.dataframe(corr)
-        st.line_chart(corr)
+            if not df_corr.empty:
+                # Gráfico de dispersão
+                st.subheader(f"📉 Correlação entre {col_x} e {col_y}")
+                fig, ax = plt.subplots()
+                ax.scatter(df_corr[col_x], df_corr[col_y], alpha=0.6)
+                ax.set_xlabel(col_x)
+                ax.set_ylabel(col_y)
+                st.pyplot(fig)
 
-    # Exportar relatório Excel com gráficos
+                # Calcular correlação de Pearson
+                corr_val = df_corr[col_x].corr(df_corr[col_y])
+                st.write(f"🔗 Correlação de Pearson: **{corr_val:.2f}**")
+
+                # Insight automático
+                if corr_val > 0.7:
+                    insight = "📈 Forte correlação positiva → quando X aumenta, Y tende a aumentar."
+                elif corr_val < -0.7:
+                    insight = "📉 Forte correlação negativa → quando X aumenta, Y tende a diminuir."
+                elif -0.3 < corr_val < 0.3:
+                    insight = "⚪ Correlação fraca ou inexistente → não há padrão claro."
+                else:
+                    insight = "🟡 Correlação moderada → existe relação, mas não muito forte."
+
+                st.write(insight)
+
+        except Exception as e:
+            st.error(f"Erro ao calcular correlação: {e}")
+
+    # -----------------------------
+    # Exportar para Excel
+    # -----------------------------
     if st.button("📥 Gerar Relatório Excel"):
         saida = "relatorio_dinamico.xlsx"
         with pd.ExcelWriter(saida, engine="xlsxwriter") as writer:
             wb = writer.book
 
-            # Base
+            # Aba base
             df.to_excel(writer, sheet_name="Base", index=False)
 
-            # Frequência
-            if freq is not None:
-                freq.to_excel(writer, sheet_name="Analise", index=True)
-                ws = writer.sheets["Analise"]
-                chart = wb.add_chart({"type": "column"})
+            # Aba correlação
+            if df_corr is not None and corr_val is not None:
+                df_corr.to_excel(writer, sheet_name="Correlação", index=False)
+                ws = writer.sheets["Correlação"]
+
+                # Escrever coeficiente e insight
+                ws.write(len(df_corr)+2, 0, "Coeficiente de Correlação (Pearson):")
+                ws.write(len(df_corr)+2, 1, corr_val)
+                ws.write(len(df_corr)+3, 0, "Insight:")
+                ws.write(len(df_corr)+3, 1, insight)
+
+                # Inserir gráfico no Excel
+                chart = wb.add_chart({"type": "scatter"})
                 chart.add_series({
-                    "categories": ["Analise", 1, 0, len(freq), 0],
-                    "values": ["Analise", 1, 1, len(freq), 1],
-                    "name": "Frequência"
+                    "categories": ["Correlação", 1, 0, len(df_corr), 0],
+                    "values": ["Correlação", 1, 1, len(df_corr), 1],
+                    "name": f"{col_x} vs {col_y}"
                 })
-                chart.set_title({"name": f"Frequência de {col_analise}"})
+                chart.set_title({"name": f"Dispersão: {col_x} x {col_y}"})
+                chart.set_x_axis({"name": col_x})
+                chart.set_y_axis({"name": col_y})
                 ws.insert_chart("E2", chart)
-
-            # Estatísticas
-            if desc is not None:
-                desc.to_excel(writer, sheet_name="Estatísticas")
-                ws = writer.sheets["Estatísticas"]
-                chart = wb.add_chart({"type": "column"})
-                chart.add_series({
-                    "categories": ["Estatísticas", 1, 0, len(desc), 0],
-                    "values": ["Estatísticas", 1, 1, len(desc), 1],
-                    "name": "Média"
-                })
-                chart.set_title({"name": "Médias Numéricas"})
-                ws.insert_chart("H2", chart)
-
-            # Correlação
-            if corr is not None:
-                corr.to_excel(writer, sheet_name="Correlações")
-                ws = writer.sheets["Correlações"]
-                chart = wb.add_chart({"type": "line"})
-                for i in range(len(corr)):
-                    chart.add_series({
-                        "name": ["Correlações", i+1, 0],
-                        "categories": ["Correlações", 0, 1, 0, len(corr.columns)],
-                        "values": ["Correlações", i+1, 1, i+1, len(corr.columns)]
-                    })
-                chart.set_title({"name": "Correlação entre Variáveis"})
-                ws.insert_chart("B10", chart)
 
         with open(saida, "rb") as f:
             st.download_button("⬇️ Baixar Relatório", f, file_name=saida)
