@@ -107,12 +107,17 @@ def gerar_relatorio(df: pd.DataFrame, saida="relatorio.xlsx"):
 uploaded_file = st.file_uploader("📂 Suba sua base (.xlsx)", type=["xlsx"])
 
 if uploaded_file is not None:
-    # Ler somente a aba "Operações"
-    df = pd.read_excel(uploaded_file, sheet_name="Operações")
+    # Detectar a aba correta automaticamente
+    xls = pd.ExcelFile(uploaded_file)
+    st.write("📑 Abas encontradas:", xls.sheet_names)
+    sheet = next((s for s in xls.sheet_names if "opera" in s.lower()), xls.sheet_names[0])
+    st.success(f"✅ Usando a aba: {sheet}")
+
+    df = pd.read_excel(xls, sheet_name=sheet)
     df = preparar_df(df)
 
     # Pré-visualização
-    st.subheader("🔎 Pré-visualização da base (aba Operações)")
+    st.subheader("🔎 Pré-visualização da base (aba selecionada)")
     st.dataframe(df.head())
 
     # -----------------------------
