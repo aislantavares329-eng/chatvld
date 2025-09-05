@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
 
-# Configuração inicial do app
 st.set_page_config(page_title="Detector de Padrões VLD", layout="wide")
-st.title("📊 Detector de Padrões VLD")
+st.title("📊 Detector de Padrões VLD - Operações")
 
-# Dias da semana em português
 DIAS_PT = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
 
 # -----------------------------
@@ -15,13 +13,11 @@ def preparar_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [c.strip().upper() for c in df.columns]
 
-    # Datas
     if "DATA" in df.columns:
         df["DATA"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
         df["MES"] = df["DATA"].dt.to_period("M").astype(str)
         df["DIA_SEMANA"] = df["DATA"].dt.weekday.map(DIAS_PT)
 
-    # Garantir que tempos sejam numéricos
     for col in ["TEMPO DE SOLUÇÃO", "TEMPO_DE_SOLUCAO", "TEMPO_DE_SOLUCAO_MIN", "PARADA_MIN"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -36,7 +32,7 @@ def gerar_relatorio(df: pd.DataFrame, saida="relatorio.xlsx"):
         wb = writer.book
 
         # Aba base completa
-        df.to_excel(writer, sheet_name="Base", index=False)
+        df.to_excel(writer, sheet_name="Operações", index=False)
 
         # 1) Top Defeitos
         if "DEFEITO" in df.columns:
@@ -108,29 +104,45 @@ def gerar_relatorio(df: pd.DataFrame, saida="relatorio.xlsx"):
 # -----------------------------
 # Interface Streamlit
 # -----------------------------
-uploaded_file = st.file_uploader("📂 Suba sua base (.csv ou .xlsx)", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("📂 Suba sua base (.xlsx)", type=["xlsx"])
 
 if uploaded_file is not None:
-    # Lê a base
-    if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file, encoding="utf-8", sep=None, engine="python")
-    else:
-        df = pd.read_excel(uploaded_file)
-
+    # Ler somente a aba "Operações"
+    df = pd.read_excel(uploaded_file, sheet_name="Operações")
     df = preparar_df(df)
 
     # Pré-visualização
-    st.subheader("🔎 Pré-visualização da base")
+    st.subheader("🔎 Pré-visualização da base (aba Operações)")
     st.dataframe(df.head())
 
-    # Top Defeitos (gráfico no app)
+    # -----------------------------
+    # Gráficos no navegador
+    # -----------------------------
     if "DEFEITO" in df.columns:
         st.subheader("🔥 Top Defeitos")
         top_defeitos = df["DEFEITO"].value_counts().reset_index()
         top_defeitos.columns = ["Defeito", "Ocorrências"]
         st.bar_chart(top_defeitos.set_index("Defeito"))
 
+    if set(["DEFEITO", "FÁBRICA"]).issubset(df.columns):
+        st.subheader("🏭 Defeitos por Fábrica")
+        defeito_fab = df.groupby("FÁBRICA")["DEFEITO"].value_counts().unstack(fill_value=0)
+        st.bar_chart(defeito_fab)
+
+    if "MES" in df.columns and "DEFEITO" in df.columns:
+        st.subheader("📅 Defeitos por Mês")
+        defeito_mes = df.groupby(["MES", "DEFEITO"]).size().unstack(fill_value=0)
+        st.line_chart(defeito_mes)
+
+    if "SOLUÇÃO" in df.columns:
+        st.subheader("🛠️ Top Soluções")
+        top_sol = df["SOLUÇÃO"].value_counts().reset_index()
+        top_sol.columns = ["Solução", "Ocorrências"]
+        st.bar_chart(top_sol.set_index("Solução"))
+
+    # -----------------------------
     # Botão gerar Excel
+    # -----------------------------
     if st.button("📥 Gerar Relatório Excel"):
         saida = gerar_relatorio(df)
         with open(saida, "rb") as f:
