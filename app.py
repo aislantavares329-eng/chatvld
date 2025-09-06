@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+
+# Import matplotlib com fallback
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
 
 st.set_page_config(page_title="Analisador Dinâmico de Planilhas", layout="wide")
 st.title("📊 Analisador Dinâmico de Planilhas")
@@ -46,7 +51,7 @@ if uploaded_file is not None:
                 df_corr[col_y] = pd.to_numeric(df_corr[col_y], errors="coerce")
                 df_corr = df_corr.dropna()
 
-                if not df_corr.empty:
+                if not df_corr.empty and plt is not None:
                     fig, ax = plt.subplots()
                     ax.scatter(df_corr[col_x], df_corr[col_y], alpha=0.6)
                     ax.set_xlabel(col_x)
@@ -67,7 +72,7 @@ if uploaded_file is not None:
 
                     st.info(insight)
                 else:
-                    st.warning("⚠️ Colunas não possuem dados numéricos suficientes para correlação.")
+                    st.warning("⚠️ Dados insuficientes ou matplotlib indisponível.")
         except Exception as e:
             st.error(f"❌ Erro ao calcular correlação: {e}")
 
@@ -87,9 +92,10 @@ if uploaded_file is not None:
                     pivot = relacao.pivot(index=col_a, columns=col_b, values="QTD").fillna(0)
                     st.bar_chart(pivot)
 
-                    st.subheader(f"🥧 Distribuição de {col_b}")
-                    dist = df[col_b].value_counts()
-                    st.pyplot(dist.plot.pie(autopct="%1.1f%%", figsize=(5, 5)).get_figure())
+                    if plt is not None:
+                        st.subheader(f"🥧 Distribuição de {col_b}")
+                        dist = df[col_b].value_counts()
+                        st.pyplot(dist.plot.pie(autopct="%1.1f%%", figsize=(5, 5)).get_figure())
 
                     maior = relacao.loc[relacao["QTD"].idxmax()]
                     diag = (
