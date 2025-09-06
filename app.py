@@ -4,8 +4,9 @@ import pandas as pd
 # Import matplotlib com fallback
 try:
     import matplotlib.pyplot as plt
+    MATPLOTLIB_OK = True
 except ImportError:
-    plt = None
+    MATPLOTLIB_OK = False
 
 st.set_page_config(page_title="Analisador Dinâmico de Planilhas", layout="wide")
 st.title("📊 Analisador Dinâmico de Planilhas")
@@ -51,7 +52,7 @@ if uploaded_file is not None:
                 df_corr[col_y] = pd.to_numeric(df_corr[col_y], errors="coerce")
                 df_corr = df_corr.dropna()
 
-                if not df_corr.empty and plt is not None:
+                if not df_corr.empty and MATPLOTLIB_OK:
                     fig, ax = plt.subplots()
                     ax.scatter(df_corr[col_x], df_corr[col_y], alpha=0.6)
                     ax.set_xlabel(col_x)
@@ -92,7 +93,7 @@ if uploaded_file is not None:
                     pivot = relacao.pivot(index=col_a, columns=col_b, values="QTD").fillna(0)
                     st.bar_chart(pivot)
 
-                    if plt is not None:
+                    if MATPLOTLIB_OK:
                         st.subheader(f"🥧 Distribuição de {col_b}")
                         dist = df[col_b].value_counts()
                         st.pyplot(dist.plot.pie(autopct="%1.1f%%", figsize=(5, 5)).get_figure())
